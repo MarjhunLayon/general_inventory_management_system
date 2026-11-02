@@ -7,9 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 const _background = Color(0xFF0D1117);
 const _surface = Color(0xFF151B23);
-const _surfaceRaised = Color(0xFF1B2430);
 const _green = Color(0xFF35D07F);
-const _muted = Color(0xFF8A96A8);
 
 String money(num value) => NumberFormat.currency(
       locale: 'en_PH',
@@ -151,8 +149,17 @@ class InventoryStore extends ChangeNotifier {
   static const _movementsKey = 'movements_v1';
   static const _previousProductsKey = 'inventory_products_v1';
   static const _previousMovementsKey = 'inventory_movements_v1';
+  static const _darkModeKey = 'dark_mode_v1';
   final List<Product> products = [];
   final List<StockMovement> movements = [];
+
+  bool get isDarkMode => _preferences.getBool(_darkModeKey) ?? true;
+
+  Future<void> setDarkMode(bool value) async {
+    final saved = await _preferences.setBool(_darkModeKey, value);
+    if (!saved) throw StateError('Unable to save appearance preference.');
+    notifyListeners();
+  }
 
   Future<void> load() async {
     final savedProducts = _mergeStoredEntries(
@@ -398,38 +405,57 @@ class InventoryApp extends StatelessWidget {
   final InventoryStore store;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'STOCKWISE',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: _background,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: _green,
-            brightness: Brightness.dark,
-            surface: _surface,
-          ),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: _background,
-            surfaceTintColor: Colors.transparent,
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: _background,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 14,
-            ),
-          ),
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: store,
+        builder: (context, _) => MaterialApp(
+          title: 'STOCKWISE',
+          debugShowCheckedModeBanner: false,
+          theme: _buildTheme(Brightness.light),
+          darkTheme: _buildTheme(Brightness.dark),
+          themeMode: store.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+          home: SplashScreen(store: store),
         ),
-        home: SplashScreen(store: store),
       );
 }
+
+ThemeData _buildTheme(Brightness brightness) {
+  final isDark = brightness == Brightness.dark;
+  final background = isDark ? _background : const Color(0xFFF4F6F8);
+  final surface = isDark ? _surface : Colors.white;
+  return ThemeData(
+    useMaterial3: true,
+    brightness: brightness,
+    scaffoldBackgroundColor: background,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: _green,
+      brightness: brightness,
+      surface: surface,
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: background,
+      surfaceTintColor: Colors.transparent,
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: background,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 14,
+      ),
+    ),
+  );
+}
+
+Color _mutedColor(BuildContext context) =>
+    Theme.of(context).colorScheme.onSurfaceVariant;
+Color _surfaceColor(BuildContext context) =>
+    Theme.of(context).colorScheme.surface;
+Color _raisedSurfaceColor(BuildContext context) =>
+    Theme.of(context).colorScheme.surfaceContainerHighest;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key, required this.store});
@@ -487,11 +513,14 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) => Scaffold(
         body: DecoratedBox(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: RadialGradient(
-              center: Alignment(0, -0.15),
+              center: const Alignment(0, -0.15),
               radius: 1.15,
-              colors: [_surfaceRaised, _background],
+              colors: [
+                _raisedSurfaceColor(context),
+                Theme.of(context).scaffoldBackgroundColor,
+              ],
             ),
           ),
           child: Center(
@@ -535,17 +564,21 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Inventory, in control.',
-                      style: TextStyle(color: _muted, fontSize: 14),
+                      style: TextStyle(
+                        color: _mutedColor(context),
+                        fontSize: 14,
+                      ),
                     ),
                     const SizedBox(height: 32),
-                    const SizedBox(
+                    SizedBox(
                       width: 88,
                       child: LinearProgressIndicator(
                         minHeight: 3,
-                        borderRadius: BorderRadius.all(Radius.circular(3)),
-                        backgroundColor: _surfaceRaised,
+                        borderRadius:
+                            const BorderRadius.all(Radius.circular(3)),
+                        backgroundColor: _raisedSurfaceColor(context),
                       ),
                     ),
                   ],
@@ -585,6 +618,40 @@ class _InventoryHomeState extends State<InventoryHome> {
     if (product != null) await _run(() => widget.store.saveProduct(product));
   }
 
+  Future<void> _showAppearanceDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        Future<void> selectMode(bool? value) async {
+          if (value == null) return;
+          Navigator.of(dialogContext).pop();
+          await _run(() => widget.store.setDarkMode(value));
+        }
+
+        return AlertDialog(
+          title: const Text('Appearance'),
+          content: RadioGroup<bool>(
+            groupValue: widget.store.isDarkMode,
+            onChanged: selectMode,
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<bool>(
+                  title: Text('Light mode'),
+                  value: false,
+                ),
+                RadioListTile<bool>(
+                  title: Text('Dark mode'),
+                  value: true,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _run(Future<void> Function() action) async {
     try {
       await action();
@@ -621,6 +688,11 @@ class _InventoryHomeState extends State<InventoryHome> {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Appearance',
+            onPressed: _showAppearanceDialog,
+            icon: const Icon(Icons.palette_outlined),
+          ),
           if (_selected == 1)
             Padding(
               padding: const EdgeInsets.only(right: 16),
@@ -639,7 +711,7 @@ class _InventoryHomeState extends State<InventoryHome> {
               selectedIndex: _selected,
               onDestinationSelected: _selectPage,
               labelType: NavigationRailLabelType.all,
-              backgroundColor: _background,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
               destinations: const [
                 NavigationRailDestination(
                   icon: Icon(Icons.grid_view_rounded),
@@ -716,7 +788,7 @@ class DashboardPage extends StatelessWidget {
           children: [
             Text(
               'Here’s what’s happening with your inventory.',
-              style: TextStyle(color: _muted, fontSize: 14),
+              style: TextStyle(color: _mutedColor(context), fontSize: 14),
             ),
             const SizedBox(height: 20),
             LayoutBuilder(
@@ -853,7 +925,7 @@ class _MetricCard extends StatelessWidget {
               children: [
                 Text(
                   metric.title,
-                  style: const TextStyle(color: _muted, fontSize: 13),
+                  style: TextStyle(color: _mutedColor(context), fontSize: 13),
                 ),
                 Icon(metric.icon, color: metric.color, size: 20),
               ],
@@ -882,9 +954,14 @@ class _Panel extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: padding,
         decoration: BoxDecoration(
-          color: _surface,
+          color: _surfaceColor(context),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.045)),
+          border: Border.all(
+            color: Theme.of(context)
+                .colorScheme
+                .outlineVariant
+                .withValues(alpha: 0.35),
+          ),
         ),
         child: child,
       );
@@ -957,8 +1034,10 @@ class _AlertsCard extends StatelessWidget {
                             const SizedBox(height: 3),
                             Text(
                               product.category,
-                              style:
-                                  const TextStyle(color: _muted, fontSize: 12),
+                              style: TextStyle(
+                                color: _mutedColor(context),
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
@@ -1041,7 +1120,10 @@ class _CategoriesCard extends StatelessWidget {
                         Expanded(child: Text(category)),
                         Text(
                           '$count ${count == 1 ? 'product' : 'products'}',
-                          style: const TextStyle(color: _muted, fontSize: 12),
+                          style: TextStyle(
+                            color: _mutedColor(context),
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -1051,7 +1133,7 @@ class _CategoriesCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: fraction,
                         minHeight: 6,
-                        backgroundColor: _surfaceRaised,
+                        backgroundColor: _raisedSurfaceColor(context),
                         color: _green,
                       ),
                     ),
@@ -1078,8 +1160,13 @@ class _EmptyState extends StatelessWidget {
             children: [
               Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 5),
-              Text(subtitle,
-                  style: const TextStyle(color: _muted, fontSize: 12)),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: _mutedColor(context),
+                  fontSize: 12,
+                ),
+              ),
             ],
           ),
         ),
@@ -1092,17 +1179,40 @@ class _ProductIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icon = switch (category.toLowerCase()) {
+    final normalizedCategory =
+        category.trim().toLowerCase().replaceAll('&', 'and');
+    final icon = switch (normalizedCategory) {
+      'food' || 'foods' => Icons.fastfood_outlined,
+      'beverage' ||
+      'beverages' ||
+      'drink' ||
+      'drinks' =>
+        Icons.local_cafe_outlined,
+      'electronic' || 'electronics' => Icons.computer_outlined,
+      'accessory' || 'accessories' => Icons.watch_outlined,
+      'clothing' || 'clothes' || 'apparel' => Icons.checkroom_outlined,
+      'furniture' => Icons.chair_outlined,
+      'school supply' ||
+      'school supplies' ||
+      'stationery' =>
+        Icons.menu_book_outlined,
+      'sport' || 'sports' => Icons.sports_soccer_outlined,
+      'beauty and personal care' ||
+      'beauty' ||
+      'personal care' ||
+      'skincare' ||
+      'skin care' =>
+        Icons.spa_outlined,
       'displays' => Icons.monitor_outlined,
       'cameras' => Icons.camera_alt_outlined,
       'audio' => Icons.headphones_outlined,
-      _ => Icons.devices_other_outlined,
+      _ => Icons.inventory_2_outlined,
     };
     return Container(
       width: 40,
       height: 40,
       decoration: BoxDecoration(
-        color: _surfaceRaised,
+        color: _raisedSurfaceColor(context),
         borderRadius: BorderRadius.circular(11),
       ),
       child: Icon(icon, size: 19, color: _green),
@@ -1383,7 +1493,10 @@ class _ProductsPageState extends State<ProductsPage> {
                   child: Text(
                     'Showing ${products.length} of '
                     '${widget.store.products.length} products',
-                    style: const TextStyle(color: _muted, fontSize: 12),
+                    style: TextStyle(
+                      color: _mutedColor(context),
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
@@ -1484,9 +1597,11 @@ class _ProductsPageState extends State<ProductsPage> {
                                                           ),
                                                           Text(
                                                             product.sku,
-                                                            style:
-                                                                const TextStyle(
-                                                              color: _muted,
+                                                            style: TextStyle(
+                                                              color:
+                                                                  _mutedColor(
+                                                                context,
+                                                              ),
                                                               fontSize: 12,
                                                             ),
                                                           ),
@@ -1617,14 +1732,14 @@ class _FilterDropdown extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: _surface,
+          color: _surfaceColor(context),
           borderRadius: BorderRadius.circular(10),
         ),
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             value: value,
             isDense: true,
-            dropdownColor: _surface,
+            dropdownColor: _surfaceColor(context),
             items: values
                 .map((item) => DropdownMenuItem(value: item, child: Text(item)))
                 .toList(),
@@ -1672,7 +1787,10 @@ class _ProductCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         product.sku,
-                        style: const TextStyle(color: _muted, fontSize: 12),
+                        style: TextStyle(
+                          color: _mutedColor(context),
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -1703,9 +1821,8 @@ class _ProductCard extends StatelessWidget {
             const SizedBox(height: 14),
             _ProductDetail(
               label: 'Supplier',
-              value: product.supplier.isEmpty
-                  ? 'Not specified'
-                  : product.supplier,
+              value:
+                  product.supplier.isEmpty ? 'Not specified' : product.supplier,
             ),
             const SizedBox(height: 8),
             _ProductDetail(
@@ -1719,9 +1836,16 @@ class _ProductCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  product.category,
-                  style: const TextStyle(color: _muted, fontSize: 12),
+                Expanded(
+                  child: Text(
+                    product.category,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _mutedColor(context),
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
                 _StockBadge(
                     quantity: product.quantity, minStock: product.minStock),
@@ -1768,7 +1892,10 @@ class _ProductDetail extends StatelessWidget {
             width: 82,
             child: Text(
               label,
-              style: const TextStyle(color: _muted, fontSize: 12),
+              style: TextStyle(
+                color: _mutedColor(context),
+                fontSize: 12,
+              ),
             ),
           ),
           Expanded(
@@ -2003,7 +2130,7 @@ class _MovementDialogState extends State<MovementDialog> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     '${widget.product.name} · ${widget.product.quantity} available',
-                    style: const TextStyle(color: _muted),
+                    style: TextStyle(color: _mutedColor(context)),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -2140,7 +2267,7 @@ class _MovementRow extends StatelessWidget {
                 '${isCreated ? 'Product added · ' : ''}${showDate ? DateFormat('MMM d, yyyy · h:mm a').format(movement.date) : DateFormat('MMM d · h:mm a').format(movement.date)}${movement.note.isEmpty ? '' : ' · ${movement.note}'}',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: _muted, fontSize: 11),
+                style: TextStyle(color: _mutedColor(context), fontSize: 11),
               ),
             ],
           ),
@@ -2261,8 +2388,8 @@ class ReportsPage extends StatelessWidget {
                                     const SizedBox(height: 3),
                                     Text(
                                       '${products.length} products · $units units',
-                                      style: const TextStyle(
-                                        color: _muted,
+                                      style: TextStyle(
+                                        color: _mutedColor(context),
                                         fontSize: 12,
                                       ),
                                     ),
@@ -2307,8 +2434,10 @@ class ReportsPage extends StatelessWidget {
                               ),
                               Text(
                                 '${product.quantity} × ${money(product.cost)}',
-                                style: const TextStyle(
-                                    color: _muted, fontSize: 12),
+                                style: TextStyle(
+                                  color: _mutedColor(context),
+                                  fontSize: 12,
+                                ),
                               ),
                               const SizedBox(width: 12),
                               Text(
