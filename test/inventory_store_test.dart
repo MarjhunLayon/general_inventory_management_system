@@ -24,6 +24,16 @@ void main() {
         store.categories, containsAll(['Accessories', 'Cameras', 'Displays']));
   });
 
+  test('persists the selected appearance mode', () async {
+    expect(store.isDarkMode, isTrue);
+
+    await store.setDarkMode(false);
+
+    expect(store.isDarkMode, isFalse);
+    final restored = InventoryStore(await SharedPreferences.getInstance());
+    expect(restored.isDarkMode, isFalse);
+  });
+
   test('records movements and restores them from local preferences', () async {
     final mouse =
         store.products.firstWhere((product) => product.sku == 'ACC-001');
@@ -190,6 +200,25 @@ void main() {
     expect(find.text('Dashboard'), findsOneWidget);
   });
 
+  testWidgets('allows switching to light mode from the app bar', (
+    tester,
+  ) async {
+    await tester.pumpWidget(InventoryApp(store: store));
+    await tester.pump(const Duration(milliseconds: 1800));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Appearance'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Light mode'));
+    await tester.pumpAndSettle();
+
+    expect(store.isDarkMode, isFalse);
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+      ThemeMode.light,
+    );
+  });
+
   testWidgets('shows a newly added product despite active stock filters', (
     tester,
   ) async {
@@ -270,6 +299,62 @@ void main() {
     );
     expect(find.text('Wireless Mouse'), findsOneWidget);
     expect(find.text('Showing 6 of 6 products'), findsOneWidget);
+  });
+
+  testWidgets('uses category icons for products and a default when unmatched', (
+    tester,
+  ) async {
+    const categories = <(String, IconData)>[
+      ('Food', Icons.fastfood_outlined),
+      ('Beverages', Icons.local_cafe_outlined),
+      ('Electronics', Icons.computer_outlined),
+      ('Accessories', Icons.watch_outlined),
+      ('Clothing', Icons.checkroom_outlined),
+      ('Furniture', Icons.chair_outlined),
+      ('School Supplies', Icons.menu_book_outlined),
+      ('Sports', Icons.sports_soccer_outlined),
+      ('Beauty & Personal Care', Icons.spa_outlined),
+      ('Displays', Icons.monitor_outlined),
+      ('Cameras', Icons.camera_alt_outlined),
+      ('Audio', Icons.headphones_outlined),
+      ('Uncategorized', Icons.inventory_2_outlined),
+      ('Unrecognized category', Icons.inventory_2_outlined),
+    ];
+    for (var index = 0; index < categories.length; index++) {
+      final (category, _) = categories[index];
+      await store.saveProduct(
+        Product(
+          id: 'category-$index',
+          name: 'Category item $index',
+          sku: 'CAT-$index',
+          category: category,
+          quantity: 1,
+          minStock: 1,
+          cost: 1,
+          price: 2,
+        ),
+      );
+    }
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(home: InventoryHome(store: store)));
+    await tester.tap(find.text('Products').last);
+    await tester.pumpAndSettle();
+
+    for (var index = 0; index < categories.length; index++) {
+      final (_, expectedIcon) = categories[index];
+      await tester.enterText(find.byType(TextField).first, 'CAT-$index');
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('product-list')),
+          matching: find.byIcon(expectedIcon),
+        ),
+        findsOneWidget,
+        reason: 'Category ${categories[index].$1} should use its icon.',
+      );
+    }
   });
 
   testWidgets('shows supplier and description on product cards', (
